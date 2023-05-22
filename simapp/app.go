@@ -587,7 +587,7 @@ func (app *SimApp) InitChainer(ctx sdk.Context, req abci.RequestInitChain) (abci
 		panic(err)
 	}
 	app.UpgradeKeeper.SetModuleVersionMap(ctx, app.ModuleManager.GetVersionMap())
-	return app.ModuleManager.InitGenesis(ctx, app.appCodec, genesisState)
+	return app.ModuleManager.InitGenesis(ctx, app.appCodec, genesisState, req.Validators)
 }
 
 // LoadHeight loads a particular height

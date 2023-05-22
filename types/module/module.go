@@ -440,10 +440,29 @@ func (m *Manager) RegisterServices(cfg Configurator) error {
 	return nil
 }
 
-// InitGenesis performs init genesis functionality for modules. Exactly one
-// module must return a non-empty validator set update to correctly initialize
-// the chain.
-func (m *Manager) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, genesisData map[string]json.RawMessage) (abci.ResponseInitChain, error) {
+// InitGenesis performs init genesis functionality for modules.
+//
+// **Notes on genesis validator set:**
+//
+// There are two ways a genesis validator set can be initialized:
+//
+//   - Provided by Tendermint in RequestInitChain
+//   - Provided by one of the modules
+//
+// Let's call them the "Tendermint valset" and "app valset", respectively.
+//
+// The logic used here to select the validator set is as follows:
+//
+//   - Tendermint valset and app valset cannot both be empty
+//   - Tendermint valset and app valset cannot both be non-empty (which creates
+//     an ambiguity which set should be used)
+//   - If app valset is empty, we simply use the Tendermint valset
+//   - If Tendermint valset is empty, then exactly one module must return a non-
+//     empty valset in its InitChain handler. We will use this valset.
+func (m *Manager) InitGenesis(
+	ctx sdk.Context, cdc codec.JSONCodec, genesisData map[string]json.RawMessage,
+	tendermintValSet []abci.ValidatorUpdate,
+) (abci.ResponseInitChain, error) {
 	var validatorUpdates []abci.ValidatorUpdate
 	ctx.Logger().Info("initializing blockchain state from genesis.json")
 	for _, moduleName := range m.OrderInitGenesis {
@@ -480,14 +499,19 @@ func (m *Manager) InitGenesis(ctx sdk.Context, cdc codec.JSONCodec, genesisData 
 		}
 	}
 
-	// a chain must initialize with a non-empty validator set
-	if len(validatorUpdates) == 0 {
+	if len(validatorUpdates) != 0 && len(tendermintValSet) != 0 {
+		return abci.ResponseInitChain{}, fmt.Errorf("application validator set in conflict with Tendermint validator set")
+	}
+
+	if len(validatorUpdates) == 0 && len(tendermintValSet) == 0 {
 		return abci.ResponseInitChain{}, fmt.Errorf("validator set is empty after InitGenesis, please ensure at least one validator is initialized with a delegation greater than or equal to the DefaultPowerReduction (%d)", sdk.DefaultPowerReduction)
 	}
 
-	return abci.ResponseInitChain{
-		Validators: validatorUpdates,
-	}, nil
+	if len(validatorUpdates) == 0 {
+		return abci.ResponseInitChain{Validators: tendermintValSet}, nil
+	}
+
+	return abci.ResponseInitChain{Validators: validatorUpdates}, nil
 }
 
 // ExportGenesis performs export genesis functionality for modules
